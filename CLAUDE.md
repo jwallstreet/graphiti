@@ -32,6 +32,21 @@ make test
 
 # Run all checks (format, lint, test)
 make check
+
+# Run specific test file
+pytest tests/test_specific_file.py
+
+# Run specific test method
+pytest tests/test_file.py::test_method_name
+
+# Run only integration tests (require database)
+pytest tests/ -k "_int"
+
+# Run only unit tests (no database required)
+pytest tests/ -k "not _int"
+
+# Run tests in parallel
+pytest -n auto
 ```
 
 ### Server Development (run from server/ directory)
@@ -118,19 +133,41 @@ docker-compose up
 - Type checking with Pyright is enforced
 - Main project uses `typeCheckingMode = "basic"`, server uses `typeCheckingMode = "standard"`
 
-### Testing Requirements
+### Testing Strategy
 
-- Run tests with `make test` or `pytest`
-- Integration tests require database connections and are marked with `_int` suffix
-- Use `pytest-xdist` for parallel test execution
-- Run specific test files: `pytest tests/test_specific_file.py`
-- Run specific test methods: `pytest tests/test_file.py::test_method_name`
-- Run only integration tests: `pytest tests/ -k "_int"`
-- Run only unit tests: `pytest tests/ -k "not _int"`
+- **Unit Tests**: Fast tests without external dependencies, test isolated functionality
+- **Integration Tests**: Tests with `_int` suffix that require Neo4j/FalkorDB connections
+- **Evaluation Scripts**: Located in `tests/evals/` for end-to-end testing
+- **Parallel Execution**: Tests use `pytest-xdist` for parallel execution with `-n auto`
+- **Test Markers**: Integration tests can be identified by the `_int` suffix in test names
 
 ### LLM Provider Support
 
 The codebase supports multiple LLM providers but works best with services supporting structured output (OpenAI, Gemini). Other providers may cause schema validation issues, especially with smaller models.
+
+### Concurrency and Rate Limiting
+
+- **Default Concurrency**: `SEMAPHORE_LIMIT` defaults to 10 concurrent operations
+- **Rate Limit Handling**: If you encounter 429 errors, reduce `SEMAPHORE_LIMIT`
+- **Performance Tuning**: Increase `SEMAPHORE_LIMIT` for higher throughput if your provider allows
+
+### Key API Patterns
+
+#### Episode Ingestion
+- Episodes are the primary unit of data ingestion
+- Support for both text and structured JSON formats
+- Automatic entity extraction and deduplication
+- Temporal tracking of when events occurred and were ingested
+
+#### Search Strategies
+- **Hybrid Search**: Combines semantic embeddings, BM25 keyword search, and graph traversal
+- **Reranking**: Uses graph distance for result reranking
+- **Search Recipes**: Predefined search patterns for common queries
+
+#### Graph Maintenance
+- Incremental updates without full recomputation
+- Temporal edge invalidation for handling contradictions
+- Community detection for entity clustering
 
 ### MCP Server Usage Guidelines
 

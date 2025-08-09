@@ -106,6 +106,8 @@ class OpenAIGenericClient(LLMClient):
                 max_tokens=self.max_tokens,
                 response_format={'type': 'json_object'},
             )
+            if not response.choices:
+                raise Exception('Empty response from LLM: no choices returned')
             result = response.choices[0].message.content or ''
             return json.loads(result)
         except openai.RateLimitError as e:

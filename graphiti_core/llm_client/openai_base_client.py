@@ -107,6 +107,8 @@ class BaseOpenAIClient(LLMClient):
 
     def _handle_structured_response(self, response: Any) -> dict[str, Any]:
         """Handle structured response parsing and validation."""
+        if not response.choices:
+            raise Exception('Empty response from LLM: no choices returned')
         response_object = response.choices[0].message
 
         if response_object.parsed:
@@ -118,6 +120,8 @@ class BaseOpenAIClient(LLMClient):
 
     def _handle_json_response(self, response: Any) -> dict[str, Any]:
         """Handle JSON response parsing."""
+        if not response.choices:
+            raise Exception('Empty response from LLM: no choices returned')
         result = response.choices[0].message.content or '{}'
         return json.loads(result)
 

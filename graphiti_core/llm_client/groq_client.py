@@ -76,6 +76,8 @@ class GroqClient(LLMClient):
                 max_tokens=max_tokens or self.max_tokens,
                 response_format={'type': 'json_object'},
             )
+            if not response.choices:
+                raise Exception('Empty response from LLM: no choices returned')
             result = response.choices[0].message.content or ''
             return json.loads(result)
         except groq.RateLimitError as e:

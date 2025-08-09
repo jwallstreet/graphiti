@@ -1,0 +1,7 @@
+fix_list_index_bug.py
+fix_list_index_bug_updated.py
+Dockerfile.fixed
+*.pyc
+__pycache__/
+.git/
+.env

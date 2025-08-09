@@ -196,6 +196,8 @@ class GraphitiLLMConfig(BaseModel):
     model: str = DEFAULT_LLM_MODEL
     small_model: str = SMALL_LLM_MODEL
     temperature: float = 0.0
+    # Supports OpenAI-compatible providers like Ollama via base_url
+    base_url: str | None = None
     azure_openai_endpoint: str | None = None
     azure_openai_deployment_name: str | None = None
     azure_openai_api_version: str | None = None
@@ -219,6 +221,10 @@ class GraphitiLLMConfig(BaseModel):
             os.environ.get('AZURE_OPENAI_USE_MANAGED_IDENTITY', 'false').lower() == 'true'
         )
 
+        # Support OpenAI-compatible local providers (e.g., Ollama)
+        # Prefer OPENAI_BASE_URL if set, else allow OLLAMA_BASE_URL as a convenience
+        base_url = os.environ.get('OPENAI_BASE_URL') or os.environ.get('OLLAMA_BASE_URL')
+
         if azure_openai_endpoint is None:
             # Setup for OpenAI API
             # Log if empty model was provided
@@ -231,11 +237,17 @@ class GraphitiLLMConfig(BaseModel):
                     f'Empty MODEL_NAME environment variable, using default: {DEFAULT_LLM_MODEL}'
                 )
 
+            # If using a local OpenAI-compatible server (e.g., Ollama), allow missing API key
+            api_key = os.environ.get('OPENAI_API_KEY')
+            if base_url and not api_key:
+                api_key = 'abc'
+
             return cls(
-                api_key=os.environ.get('OPENAI_API_KEY'),
+                api_key=api_key,
                 model=model,
                 small_model=small_model,
                 temperature=float(os.environ.get('LLM_TEMPERATURE', '0.0')),
+                base_url=base_url,
             )
         else:
             # Setup for Azure OpenAI API
@@ -333,11 +345,15 @@ class GraphitiLLMConfig(BaseModel):
             else:
                 raise ValueError('OPENAI_API_KEY must be set when using Azure OpenAI API')
 
-        if not self.api_key:
-            raise ValueError('OPENAI_API_KEY must be set when using OpenAI API')
+        # Allow empty API key when using a local OpenAI-compatible server (e.g., Ollama)
+        if not self.api_key and not self.base_url:
+            raise ValueError('OPENAI_API_KEY must be set when using OpenAI API (no base_url provided)')
 
         llm_client_config = LLMConfig(
-            api_key=self.api_key, model=self.model, small_model=self.small_model
+            api_key=self.api_key,
+            model=self.model,
+            small_model=self.small_model,
+            base_url=self.base_url,
         )
 
         # Set temperature
@@ -354,6 +370,8 @@ class GraphitiEmbedderConfig(BaseModel):
 
     model: str = DEFAULT_EMBEDDER_MODEL
     api_key: str | None = None
+    # Supports OpenAI-compatible providers like Ollama via base_url
+    base_url: str | None = None
     azure_openai_endpoint: str | None = None
     azure_openai_deployment_name: str | None = None
     azure_openai_api_version: str | None = None
@@ -367,6 +385,13 @@ class GraphitiEmbedderConfig(BaseModel):
         model_env = os.environ.get('EMBEDDER_MODEL_NAME', '')
         model = model_env if model_env.strip() else DEFAULT_EMBEDDER_MODEL
 
+        # Optional embedding dim override (needed for some local models like nomic-embed-text (768))
+        embedding_dim_env = os.environ.get('EMBEDDING_DIM')
+        try:
+            embedding_dim = int(embedding_dim_env) if embedding_dim_env else None
+        except ValueError:
+            embedding_dim = None
+
         azure_openai_endpoint = os.environ.get('AZURE_OPENAI_EMBEDDING_ENDPOINT', None)
         azure_openai_api_version = os.environ.get('AZURE_OPENAI_EMBEDDING_API_VERSION', None)
         azure_openai_deployment_name = os.environ.get(
@@ -375,6 +400,8 @@ class GraphitiEmbedderConfig(BaseModel):
         azure_openai_use_managed_identity = (
             os.environ.get('AZURE_OPENAI_USE_MANAGED_IDENTITY', 'false').lower() == 'true'
         )
+        # Support OpenAI-compatible local providers (e.g., Ollama)
+        base_url = os.environ.get('OPENAI_BASE_URL') or os.environ.get('OLLAMA_BASE_URL')
         if azure_openai_endpoint is not None:
             # Setup for Azure OpenAI API
             # Log if empty deployment name was provided
@@ -405,9 +432,15 @@ class GraphitiEmbedderConfig(BaseModel):
                 azure_openai_deployment_name=azure_openai_deployment_name,
             )
         else:
+            api_key = os.environ.get('OPENAI_API_KEY')
+            if base_url and not api_key:
+                api_key = 'abc'
+
             return cls(
                 model=model,
-                api_key=os.environ.get('OPENAI_API_KEY'),
+                api_key=api_key,
+                base_url=base_url,
+                # Store embedding_dim in instance via dynamic attribute; applied in create_client
             )
 
     def create_client(self) -> EmbedderClient | None:
@@ -440,11 +473,27 @@ class GraphitiEmbedderConfig(BaseModel):
                 logger.error('OPENAI_API_KEY must be set when using Azure OpenAI API')
                 return None
         else:
-            # OpenAI API setup
-            if not self.api_key:
+            # OpenAI-compatible API setup (e.g., OpenAI, Ollama)
+            # Allow missing API key when base_url provided
+            if not self.api_key and not self.base_url:
                 return None
 
-            embedder_config = OpenAIEmbedderConfig(api_key=self.api_key, embedding_model=self.model)
+            # Determine embedding dim; default from OpenAIEmbedderConfig/EmbedderConfig if not overridden
+            embedding_dim_env = os.environ.get('EMBEDDING_DIM')
+            try:
+                embedding_dim = int(embedding_dim_env) if embedding_dim_env else None
+            except ValueError:
+                embedding_dim = None
+
+            config_kwargs = {
+                'api_key': self.api_key,
+                'embedding_model': self.model,
+                'base_url': self.base_url,
+            }
+            if embedding_dim is not None:
+                config_kwargs['embedding_dim'] = embedding_dim
+            
+            embedder_config = OpenAIEmbedderConfig(**config_kwargs)
 
             return OpenAIEmbedder(config=embedder_config)
 
@@ -589,6 +638,23 @@ async def initialize_graphiti():
 
         embedder_client = config.embedder.create_client()
 
+        # Initialize Cross Encoder configured to the same provider (avoids defaulting to OpenAI)
+        from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient as _Reranker
+        cross_encoder_client = None
+        try:
+            cross_encoder_client = _Reranker(
+                client=llm_client if llm_client is not None else None,
+                config=LLMConfig(
+                    api_key=config.llm.api_key,
+                    model=config.llm.small_model or config.llm.model,
+                    small_model=config.llm.small_model,
+                    base_url=config.llm.base_url,
+                ),
+            )
+        except Exception:
+            # If creation fails (e.g., provider lacks needed features), fall back to no reranker
+            cross_encoder_client = None
+
         # Initialize Graphiti client
         graphiti_client = Graphiti(
             uri=config.neo4j.uri,
@@ -596,6 +662,7 @@ async def initialize_graphiti():
             password=config.neo4j.password,
             llm_client=llm_client,
             embedder=embedder_client,
+            cross_encoder=cross_encoder_client,
             max_coroutines=SEMAPHORE_LIMIT,
         )
 

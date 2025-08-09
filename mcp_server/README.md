@@ -87,8 +87,9 @@ The server uses the following environment variables:
 - `NEO4J_URI`: URI for the Neo4j database (default: `bolt://localhost:7687`)
 - `NEO4J_USER`: Neo4j username (default: `neo4j`)
 - `NEO4J_PASSWORD`: Neo4j password (default: `demodemo`)
-- `OPENAI_API_KEY`: OpenAI API key (required for LLM operations)
-- `OPENAI_BASE_URL`: Optional base URL for OpenAI API
+- `OPENAI_API_KEY`: OpenAI API key (required for remote OpenAI API; optional when using local OpenAI-compatible servers like Ollama)
+- `OPENAI_BASE_URL`: Optional base URL for OpenAI-compatible API (set to `http://localhost:11434/v1` for Ollama)
+- `OLLAMA_BASE_URL`: Optional alias for local OpenAI-compatible base URL. If set and `OPENAI_BASE_URL` is not set, it will be used.
 - `MODEL_NAME`: OpenAI model name to use for LLM operations.
 - `SMALL_MODEL_NAME`: OpenAI model name to use for smaller LLM operations.
 - `LLM_TEMPERATURE`: Temperature for LLM responses (0.0-2.0).
@@ -117,6 +118,34 @@ With options:
 ```bash
 uv run graphiti_mcp_server.py --model gpt-4.1-mini --transport sse
 ```
+
+### Using a local LLM via Ollama
+
+To use a local LLM and embedder via Ollama (no OpenAI API calls):
+
+1. Start Ollama and pull models
+   ```bash
+   ollama serve
+   ollama pull deepseek-r1:7b           # example LLM
+   ollama pull nomic-embed-text         # example embedding model (768 dims)
+   ```
+
+2. Configure environment
+   ```bash
+   export OPENAI_BASE_URL=http://localhost:11434/v1
+   export MODEL_NAME=deepseek-r1:7b
+   export SMALL_MODEL_NAME=deepseek-r1:7b
+   export EMBEDDER_MODEL_NAME=nomic-embed-text
+   export EMBEDDING_DIM=768
+   # OPENAI_API_KEY may be omitted when using OPENAI_BASE_URL
+   ```
+
+3. Run the server
+   ```bash
+   uv run graphiti_mcp_server.py --transport sse
+   ```
+
+Note: You can alternatively set `OLLAMA_BASE_URL=http://localhost:11434/v1` instead of `OPENAI_BASE_URL`.
 
 Available arguments:
 
