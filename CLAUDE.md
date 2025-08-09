@@ -13,6 +13,10 @@ Key features:
 - Support for custom entity definitions via Pydantic models
 - Integration with Neo4j and FalkorDB as graph storage backends
 
+## System-Specific Notes
+
+**Docker Compose Command**: On this system, use `docker compose` (with space) instead of `docker-compose` (with hyphen). The newer Docker CLI includes compose as a subcommand.
+
 ## Development Commands
 
 ### Main Development Commands (run from project root)
@@ -72,8 +76,8 @@ cd mcp_server/
 # Install MCP server dependencies
 uv sync
 
-# Run with Docker Compose
-docker-compose up
+# Run with Docker Compose (note: this system uses 'docker compose' not 'docker-compose')
+docker compose up
 ```
 
 ## Code Architecture

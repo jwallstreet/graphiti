@@ -420,6 +420,153 @@ GRAPHITI_TELEMETRY_ENABLED=false
 
 For complete details about what's collected and why, see the [Telemetry section in the main Graphiti README](../README.md#telemetry).
 
+## Troubleshooting
+
+### Common Setup Issues
+
+#### 1. Docker Compose Command Issues
+
+**Problem**: `docker-compose: command not found` 
+
+**Solution**: Modern Docker installations use `docker compose` (with space) instead of `docker-compose` (with hyphen).
+
+```bash
+# Correct (modern Docker):
+docker compose up
+
+# Incorrect (legacy):  
+docker-compose up
+```
+
+#### 2. Ollama Connection Issues from Docker
+
+**Problem**: MCP server shows "Connection error" when trying to reach Ollama, logs show connection timeouts to `http://host.docker.internal:11434/v1`
+
+**Root Cause**: Docker networking configuration varies between systems. `host.docker.internal` may not work on all Linux distributions.
+
+**Solutions**:
+
+**Option A**: Configure Ollama to listen on all interfaces (recommended)
+```bash
+# Stop current Ollama service
+sudo systemctl stop ollama
+
+# Start with host binding (temporary)
+OLLAMA_HOST=0.0.0.0 ollama serve
+
+# Or configure permanently by editing systemd service
+sudo systemctl edit ollama
+# Add:
+# [Service]
+# Environment="OLLAMA_HOST=0.0.0.0"
+```
+
+**Option B**: Use direct container gateway IP
+1. Find your Docker gateway IP:
+   ```bash
+   docker inspect mcp_server-graphiti-mcp-1 | grep Gateway
+   ```
+2. Update `.env` file:
+   ```bash
+   OPENAI_BASE_URL=http://172.18.0.1:11434/v1  # Use your gateway IP
+   ```
+
+#### 3. Missing Ollama Models
+
+**Problem**: MCP server fails to start or shows model not found errors
+
+**Solution**: Ensure you have the correct models pulled:
+
+```bash
+# For the default configuration:
+ollama pull llama3.2:1b          # LLM model  
+ollama pull nomic-embed-text     # Embedding model
+
+# Verify models are available:
+ollama list
+```
+
+Update your `.env` file to match available models:
+```bash
+MODEL_NAME=llama3.2:1b           # Must match exactly
+SMALL_MODEL_NAME=llama3.2:1b     # Must match exactly  
+EMBEDDER_MODEL_NAME=nomic-embed-text
+```
+
+#### 4. GPU Acceleration Verification
+
+To verify GPU acceleration is working with Ollama:
+
+```bash
+# Monitor GPU usage during inference:
+watch -n 1 rocm-smi  # For AMD GPUs
+# or
+watch -n 1 nvidia-smi  # For NVIDIA GPUs
+
+# Run a test inference and watch power/temperature increase:
+echo "Generate a long story about AI" | ollama run llama3.2:1b
+```
+
+Expected signs of GPU acceleration:
+- Power consumption increases significantly (e.g., 5W → 25W)
+- GPU temperature rises during inference
+- VRAM usage shows model loaded in GPU memory
+
+#### 5. MCP Server Initialization Issues
+
+**Problem**: "Received request before initialization was complete" errors
+
+**Solutions**:
+1. Wait longer for server initialization (can take 1-2 minutes)
+2. Check Neo4j connectivity:
+   ```bash
+   docker logs mcp_server-neo4j-1
+   ```
+3. Verify all required environment variables are set in `.env`
+4. Check MCP server logs for specific error messages:
+   ```bash
+   docker logs mcp_server-graphiti-mcp-1
+   ```
+
+#### 6. System-Specific Docker Networking
+
+**Problem**: Container networking issues on different Linux distributions
+
+**Solutions**:
+- **Ubuntu/Debian**: Usually works with default `host.docker.internal`
+- **Fedora/RHEL**: May require manual IP configuration
+- **Arch/Manjaro**: Often needs host networking or IP binding
+
+General debugging approach:
+```bash
+# Find container's gateway IP:
+docker exec mcp_server-graphiti-mcp-1 ip route | grep default
+
+# Test connectivity from container:
+docker exec mcp_server-graphiti-mcp-1 curl -s http://GATEWAY_IP:11434/api/version
+```
+
+#### 7. Port Conflicts
+
+**Problem**: "Port already in use" errors
+
+**Solutions**:
+```bash
+# Check what's using the port:
+sudo lsof -i :8000  # MCP server port
+sudo lsof -i :11434 # Ollama port  
+sudo lsof -i :7474  # Neo4j HTTP port
+sudo lsof -i :7687  # Neo4j Bolt port
+
+# Stop conflicting services or change ports in docker-compose.yml
+```
+
+### Performance Optimization
+
+- **For rate limiting**: Reduce `SEMAPHORE_LIMIT` (default: 10)
+- **For faster processing**: Increase `SEMAPHORE_LIMIT` if your LLM provider allows higher throughput
+- **For GPU acceleration**: Ensure Ollama ROCm/CUDA versions are properly installed
+
 ## License
 
 This project is licensed under the same license as the parent Graphiti project.
